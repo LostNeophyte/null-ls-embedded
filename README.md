@@ -6,6 +6,11 @@ so if the highlighting works, the formatting should as well.
 
 https://user-images.githubusercontent.com/110467150/205292765-e2f89639-f0aa-4ca0-af71-fc69478ff6d7.mp4
 
+# Disclaimer
+
+Currently the plugin works correctly with formatters that don't need an actual file,
+correct functioning with other formatters is not supported
+
 ## installation
 
 ### Dependencies:
