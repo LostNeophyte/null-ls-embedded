@@ -104,16 +104,18 @@ local function null_ls_embedded_format(bufnr, lang, range, callback_override)
     local ok, err = pcall(function()
       local new_lines = api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
 
-      local function lines_to_text(lines, line_ending)
-        local result = ""
-        for _, line in ipairs(lines) do
-          result = result .. line .. line_ending
+      local function lines_to_text(lines, line_ending, indent)
+        local result = lines[1] .. line_ending
+        for index = 2, #lines do
+          result = result .. indent .. lines[index] .. line_ending
         end
-        return result
+        return result:gsub("[\r\n]+$", line_ending)
       end
 
+      local indent = vim.api.nvim_buf_get_text(bufnr, range[1], 0, range[1], range[2], {})[1]
+
       local diff = {
-        newText = lines_to_text(new_lines, u.get_line_ending(bufnr)),
+        newText = lines_to_text(new_lines, u.get_line_ending(bufnr), indent or ""),
         range = {
           start = { line = range[1], character = range[2] },
           ["end"] = { line = range[3], character = range[4] },
