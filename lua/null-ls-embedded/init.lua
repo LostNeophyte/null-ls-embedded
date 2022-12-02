@@ -30,7 +30,7 @@ local function get_ts_injections(bufnr)
   local injections = {}
 
   for _, match, metadata in query:iter_matches(root, bufnr, 0, -1) do
-    local ranges = {}
+    local nodes = {}
     local lang
     if metadata.language then
       lang = metadata.language
@@ -41,12 +41,12 @@ local function get_ts_injections(bufnr)
 
       if name == "language" and not lang then
         lang = vim.treesitter.query.get_node_text(node, bufnr)
-      elseif name == "content" and #ranges == 0 then
-        table.insert(ranges, { node:range() })
+      elseif name == "content" and #nodes == 0 then
+        table.insert(nodes, node)
       elseif string.sub(name, 1, 1) ~= "_" then
         lang = lang or name
 
-        table.insert(ranges, { node:range() })
+        table.insert(nodes, node)
       end
     end
 
@@ -54,7 +54,7 @@ local function get_ts_injections(bufnr)
       if not injections[lang] then
         injections[lang] = {}
       end
-      vim.list_extend(injections[lang], ranges)
+      vim.list_extend(injections[lang], nodes)
     end
   end
 
@@ -109,21 +109,21 @@ local function null_ls_embedded_format(bufnr, lang, range, callback_override)
         for index = 2, #lines do
           result = result .. indent .. lines[index] .. line_ending
         end
-        return result:gsub("[\r\n]+$", line_ending)
+        return result:gsub("[\r\n]+$", "")
       end
 
-      local indent = vim.api.nvim_buf_get_text(bufnr, range[1], 0, range[1], range[2], {})[1]
+      local indent = vim.api.nvim_buf_get_text(bufnr, range[1], 0, range[1], range[2], {})[1] or ""
 
       local diff = {
-        newText = lines_to_text(new_lines, u.get_line_ending(bufnr), indent or ""),
+        newText = lines_to_text(new_lines, u.get_line_ending(bufnr), indent),
         range = {
           start = { line = range[1], character = range[2] },
           ["end"] = { line = range[3], character = range[4] },
         },
       }
 
-      if old_lines[#old_lines] ~= "" then
-        diff.newText = diff.newText:gsub("[\r\n]$", "")
+      if old_lines[#old_lines]:match("^[ \t]*$") then
+        diff.newText = diff.newText .. u.get_line_ending(bufnr) .. old_lines[#old_lines]
       end
 
       if callback_override then
@@ -172,12 +172,12 @@ function M.buf_format(bufnr)
 
   local edits_per_lang = {}
 
-  for lang, ranges in pairs(get_ts_injections(bufnr)) do
+  for lang, nodes in pairs(get_ts_injections(bufnr)) do
     edits_per_lang[lang] = {}
-    for i, range in ipairs(ranges) do
+    for i, node in ipairs(nodes) do
       edits_per_lang[lang][i] = {}
 
-      null_ls_embedded_format(bufnr, lang, range, function(edit)
+      null_ls_embedded_format(bufnr, lang, { node:range() }, function(edit)
         edits_per_lang[lang][i] = edit
       end)
     end
