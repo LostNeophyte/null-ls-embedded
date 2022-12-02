@@ -78,7 +78,12 @@ local function null_ls_embedded_format(bufnr, lang, range, callback_override)
     api.nvim_buf_set_option(temp_bufnr, option, api.nvim_buf_get_option(bufnr, option))
   end
   api.nvim_buf_set_option(temp_bufnr, "filetype", lang)
+
   local old_lines = vim.api.nvim_buf_get_text(bufnr, range[1], range[2], range[3], range[4], {})
+  local indent = vim.api.nvim_buf_get_text(bufnr, range[1], 0, range[1], range[2], {})[1] or ""
+  for i, line in ipairs(old_lines) do
+    old_lines[i] = line:gsub("^" .. indent, "")
+  end
   api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, old_lines)
 
   local handle_err = function(err)
@@ -104,27 +109,40 @@ local function null_ls_embedded_format(bufnr, lang, range, callback_override)
     local ok, err = pcall(function()
       local new_lines = api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
 
-      local function lines_to_text(lines, line_ending, indent)
-        local result = lines[1] .. line_ending
-        for index = 2, #lines do
+      local function lines_to_text(lines, line_ending)
+        local result = lines[1]
+        if #lines > 1 then
+          result = result .. line_ending
+        end
+
+        for index = 2, #lines - 1 do
           result = result .. indent .. lines[index] .. line_ending
         end
-        return result:gsub("[\r\n]+$", "")
+
+        if #lines > 1 then
+          result = result .. indent .. lines[#lines]
+
+          if old_lines[#old_lines]:match("^[ \t]*$") then
+            result = result .. line_ending
+          end
+        end
+
+        result = result .. (old_lines[#old_lines]:match("^[ \t]+$") or "")
+
+        return result
       end
 
-      local indent = vim.api.nvim_buf_get_text(bufnr, range[1], 0, range[1], range[2], {})[1] or ""
+      if new_lines[#new_lines]:match("^[ \t]+$") then
+        new_lines[#new_lines] = nil
+      end
 
       local diff = {
-        newText = lines_to_text(new_lines, u.get_line_ending(bufnr), indent),
+        newText = lines_to_text(new_lines, u.get_line_ending(bufnr)),
         range = {
           start = { line = range[1], character = range[2] },
           ["end"] = { line = range[3], character = range[4] },
         },
       }
-
-      if old_lines[#old_lines]:match("^[ \t]*$") then
-        diff.newText = diff.newText .. u.get_line_ending(bufnr) .. old_lines[#old_lines]
-      end
 
       if callback_override then
         callback_override(diff)
