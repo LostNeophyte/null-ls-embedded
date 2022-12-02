@@ -9,7 +9,7 @@ https://user-images.githubusercontent.com/110467150/205292765-e2f89639-f0aa-4ca0
 # Disclaimer
 
 Currently the plugin works correctly with formatters that don't need an actual file,
-correct functioning with other formatters is not guaranteed (some work, some don't)
+correct functioning with other formatters is not guaranteed (some work, some don't). see https://github.com/LostNeophyte/null-ls-embedded/issues/3
 
 ## installation
 
