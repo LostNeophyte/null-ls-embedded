@@ -2,6 +2,8 @@
 
 Format embedded code using [null-ls](https://github.com/jose-elias-alvarez/null-ls.nvim) in NeoVim
 
+https://user-images.githubusercontent.com/110467150/205292765-e2f89639-f0aa-4ca0-af71-fc69478ff6d7.mp4
+
 ## credits
 
 - **TJ DeVries**: [Magically format embedded languages in Neovim](https://www.youtube.com/watch?v=v3o9YaHBM4Q)  
