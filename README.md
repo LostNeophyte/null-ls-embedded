@@ -43,7 +43,7 @@ To stop some languages from being formatted, you can edit the `ignore_langs` tab
 defaults:
 
 ```lua
-require("null-ls-embedded").ignore_langs = {
+require("null-ls-embedded").config.ignore_langs = {
   ["*"] = { "comment" }, -- don't format `comment` in all languages
   markdown = { "inline_markdown" }, -- don't format embedded `inline_markdown` in `markdown` files
 }
