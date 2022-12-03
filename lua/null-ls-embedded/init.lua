@@ -96,9 +96,16 @@ local function null_ls_embedded_format(bufnr, lang, range, callback_override)
   end
 
   local make_params = function()
-    local params = u.make_params({ filetype = lang }, methods.internal.FORMATTING)
-    -- override actual content w/ temp buffer content
-    params.content = u.buf.content(temp_bufnr)
+    local params = {
+      lsp_method = methods.lsp.FORMATTING,
+      method = methods.internal.FORMATTING,
+      content = u.buf.content(temp_bufnr),
+      row = 1,
+      col = 0,
+      bufnr = bufnr,
+      bufname = api.nvim_buf_get_name(bufnr):gsub("%.[^%.]+$", "." .. lang),
+      ft = lang,
+    }
     return params
   end
 
