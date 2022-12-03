@@ -8,6 +8,10 @@ M.config = {
 }
 
 local function should_format(root_lang, embedded_lang)
+  if root_lang == embedded_lang then
+    return false
+  end
+
   local ignore_langs = M.config.ignore_langs
   if vim.tbl_contains(ignore_langs["*"], embedded_lang) then
     return false
