@@ -5,6 +5,7 @@ M.config = {
     ["*"] = { "comment" }, -- ignore comment in all languages
     markdown = { "inline_markdown" }, -- ignore inline_markdown in markdown
   },
+  format_entire_buffer = true,
 }
 
 local function should_format(root_lang, embedded_lang)
@@ -236,6 +237,10 @@ function M.buf_format(bufnr)
   end
 
   vim.lsp.util.apply_text_edits(edits_to_apply, bufnr, require("null-ls.client").get_offset_encoding())
+
+  if M.config.format_entire_buffer then
+    pcall(vim.lsp.buf.format, { bufnr = bufnr })
+  end
 end
 
 ---Format current code block
