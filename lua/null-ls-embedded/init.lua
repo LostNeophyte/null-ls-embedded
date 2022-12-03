@@ -239,7 +239,15 @@ function M.buf_format(bufnr)
   vim.lsp.util.apply_text_edits(edits_to_apply, bufnr, require("null-ls.client").get_offset_encoding())
 
   if M.config.format_entire_buffer then
-    pcall(vim.lsp.buf.format, { bufnr = bufnr })
+
+    local function has_formatter(client)
+      return client.server_capabilities.documentFormattingProvider
+    end
+
+    local clients = vim.tbl_filter(has_formatter, vim.lsp.get_active_clients({ bufnr = bufnr }))
+    if #clients > 0 then
+      pcall(vim.lsp.buf.format, { bufnr = bufnr, filter = has_formatter })
+    end
   end
 end
 
