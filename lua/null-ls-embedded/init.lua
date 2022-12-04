@@ -1,191 +1,117 @@
 local M = {}
 
-M.config = {
-  ignore_langs = {
-    ["*"] = { "comment" }, -- ignore comment in all languages
-    markdown = { "inline_markdown" }, -- ignore inline_markdown in markdown
-  },
-}
+local config = require("null-ls-embedded.config")
 
-local function should_format(root_lang, embedded_lang)
-  if root_lang == embedded_lang then
-    return false
-  end
+local utils = require("null-ls-embedded.utils")
+local methods = require("null-ls.methods")
+local nl_utils = require("null-ls.utils")
 
-  local ignore_langs = M.config.ignore_langs
-  if vim.tbl_contains(ignore_langs["*"], embedded_lang) then
-    return false
-  end
-
-  if ignore_langs[root_lang] then
-    return not vim.tbl_contains(ignore_langs[root_lang], embedded_lang)
-  end
-
-  return true
-end
-
--- modified code from <neovim/runtime/lua/vim/treesitter/languagetree.lua>
-local function get_ts_injections(bufnr)
-  local root_lang = vim.api.nvim_buf_get_option(bufnr, "filetype")
-  local query = require("nvim-treesitter.query").get_query(root_lang, "injections")
-
-  local root = vim.treesitter.get_parser():parse()[1]:root()
-
-  local injections = {}
-
-  for _, match, metadata in query:iter_matches(root, bufnr, 0, -1) do
-    local nodes = {}
-    local lang
-    if metadata.language then
-      lang = metadata.language
-    end
-
-    for id, node in pairs(match) do
-      local name = query.captures[id]
-
-      if name == "language" and not lang then
-        lang = vim.treesitter.query.get_node_text(node, bufnr)
-      elseif name == "content" and #nodes == 0 then
-        table.insert(nodes, node)
-      elseif string.sub(name, 1, 1) ~= "_" then
-        lang = lang or name
-
-        table.insert(nodes, node)
-      end
-    end
-
-    if should_format(root_lang, lang) then
-      if not injections[lang] then
-        injections[lang] = {}
-      end
-      vim.list_extend(injections[lang], nodes)
-    end
-  end
-
-  return injections
-end
-
----Format embedded code using null-ls
----@param bufnr number 0 for current
----@param lang string programming language of the code to format
----@param range number[] list with 4 values: {tart_row, start_col, end_row, end_col}
-local function null_ls_embedded_format(bufnr, lang, range, callback_override)
-  local methods = require("null-ls.methods")
-  local u = require("null-ls.utils")
-  local api = vim.api
+local function nls_get_range_edit_async(params, done)
   local lsp = vim.lsp
 
-  local temp_bufnr = api.nvim_create_buf(false, true)
+  local root_bufnr = params.bufnr
+  local range = utils.trim_range(params.range, params.content)
 
-  local options = { "eol", "fixeol", "fileformat" }
-  for _, option in pairs(options) do
-    api.nvim_buf_set_option(temp_bufnr, option, api.nvim_buf_get_option(bufnr, option))
-  end
-  api.nvim_buf_set_option(temp_bufnr, "filetype", lang)
+  local tmp_bufnr, buf_to_text_opts = utils.prepare_tmp_buffer({
+    root_bufnr = root_bufnr,
+    ft = params.ft,
+    content = params.content,
+    range = range,
+  })
 
-  local old_lines = vim.api.nvim_buf_get_text(bufnr, range[1], range[2], range[3], range[4], {})
-  local indent = vim.api.nvim_buf_get_text(bufnr, range[1], 0, range[1], range[2], {})[1] or ""
-  for i, line in ipairs(old_lines) do
-    old_lines[i] = line:gsub("^" .. indent, "")
-  end
-  api.nvim_buf_set_lines(temp_bufnr, 0, -1, false, old_lines)
-
-  local handle_err = function(err)
-    require("null-ls.logger"):warn("[null-ls-embedded] Formatting error: " .. err)
-    api.nvim_buf_delete(temp_bufnr, { force = true })
+  if not tmp_bufnr or not buf_to_text_opts then
+    done()
+    return
   end
 
-  local make_params = function()
-    local params = {
+  local content_before_format = nl_utils.buf.content(tmp_bufnr)
+  local function handle_err(err)
+    require("null-ls.logger"):warn("[null-ls-embedded] " .. err)
+    vim.api.nvim_buf_delete(tmp_bufnr, { force = true })
+    done()
+  end
+
+  local function make_params()
+    return {
+      _nls_embedded = true,
       lsp_method = methods.lsp.FORMATTING,
       method = methods.internal.FORMATTING,
-      content = u.buf.content(temp_bufnr),
-      row = 1,
-      col = 0,
-      bufnr = bufnr,
-      bufname = api.nvim_buf_get_name(bufnr):gsub("%.[^%.]+$", "." .. lang),
-      ft = lang,
+      bufnr = tmp_bufnr,
+      bufname = params.bufname:gsub("%.[^%.]+$", "." .. params.ft),
+      content = nl_utils.buf.content(tmp_bufnr),
+      ft = params.ft,
     }
-    return params
   end
 
-  local after_each = function(edits)
-    local ok, err = pcall(lsp.util.apply_text_edits, edits, temp_bufnr, require("null-ls.client").get_offset_encoding())
-    if not ok then
-      handle_err(err)
-    end
-  end
-
-  local callback = function()
-    local ok, err = pcall(function()
-      local new_lines = api.nvim_buf_get_lines(temp_bufnr, 0, -1, false)
-
-      local function lines_to_text(lines, line_ending)
-        local result = lines[1]
-        if #lines > 1 then
-          result = result .. line_ending
-        end
-
-        for index = 2, #lines - 1 do
-          result = result .. indent .. lines[index] .. line_ending
-        end
-
-        if #lines > 1 then
-          result = result .. indent .. lines[#lines]
-
-          if old_lines[#old_lines]:match("^[ \t]*$") then
-            result = result .. line_ending
-          end
-        end
-
-        result = result .. (old_lines[#old_lines]:match("^[ \t]+$") or "")
-
-        return result
-      end
-
-      if new_lines[#new_lines]:match("^[ \t]+$") then
-        new_lines[#new_lines] = nil
-      end
-
-      local diff = {
-        newText = lines_to_text(new_lines, u.get_line_ending(bufnr)),
-        range = {
-          start = { line = range[1], character = range[2] },
-          ["end"] = { line = range[3], character = range[4] },
-        },
-      }
-
-      if callback_override then
-        callback_override(diff)
-      else
-        vim.lsp.util.apply_text_edits({ diff }, bufnr, require("null-ls.client").get_offset_encoding())
-      end
-
-      api.nvim_buf_delete(temp_bufnr, { force = true })
-    end)
-
-    if not ok then
-      handle_err(err)
-    end
-  end
-
-  local postprocess = function(edit, params)
+  local function postprocess(edit, parameters)
     edit.range = {
       ["start"] = {
         line = 0,
         character = 0,
       },
       ["end"] = {
-        line = #params.content,
+        line = #parameters.content,
         character = 0,
       },
     }
-    -- strip trailing newline
     edit.newText = edit.text:gsub("[\r\n]$", "")
   end
 
+  local function after_each(edits)
+    local ok, err = pcall(lsp.util.apply_text_edits, edits, tmp_bufnr, require("null-ls.client").get_offset_encoding())
+    if not ok then
+      handle_err(err)
+    end
+  end
+
+  local function callback()
+    local diff = nil
+    local function cleanup()
+      done(diff)
+      vim.api.nvim_buf_delete(tmp_bufnr, { force = true })
+    end
+    local content_after_format = nl_utils.buf.content(tmp_bufnr)
+    local ok, err = pcall(function()
+      -- don't format invalid regions with range formatting
+      if params.method == methods.internal.RANGE_FORMATTING then
+        local same = true
+
+        if #content_before_format == #content_after_format then
+          for i = 1, #content_before_format do
+            if content_before_format[i] ~= content_after_format[i] then
+              same = false
+              break
+            end
+          end
+        end
+
+        if same then
+          return
+        end
+      end
+
+      local text = utils.buf_to_text(tmp_bufnr, buf_to_text_opts)
+
+      diff = {
+        text = text,
+        newText = text,
+        row = params.range.row,
+        col = params.range.col,
+        end_row = params.range.end_row,
+        end_col = params.range.end_col,
+      }
+      diff.range = nl_utils.range.to_lsp(diff)
+    end)
+
+    if not ok then
+      handle_err(err)
+    else
+      cleanup()
+    end
+  end
+
   require("null-ls.generators").run_registered_sequentially({
-    filetype = lang,
+    filetype = params.ft,
     method = methods.internal.FORMATTING,
     make_params = make_params,
     postprocess = postprocess,
@@ -194,28 +120,58 @@ local function null_ls_embedded_format(bufnr, lang, range, callback_override)
   })
 end
 
----Format every code block in the buffer
----@param bufnr number|nil Number of the buffer or nil for the current one
-function M.buf_format(bufnr)
-  bufnr = bufnr or vim.api.nvim_get_current_buf()
+---@return any
+local function nls_get_range_edit(params)
+  local ret = false
+
+  nls_get_range_edit_async(params, function(ret_)
+    ret = ret_
+  end)
+
+  local function is_done()
+    return ret ~= false
+  end
+
+  vim.wait(config.timeout, is_done, 20)
+
+  return ret
+end
+
+local function nls_get_buf_edits(root_bufnr, root_ft, content, use_tmp_buf)
+  root_bufnr = root_bufnr or vim.api.nvim_get_current_buf()
+  root_ft = root_ft or vim.api.nvim_buf_get_option(root_bufnr, "filetype")
+  content = content or vim.api.nvim_buf_get_lines(root_bufnr, 0, -1, false)
+
+  local ts_bufnr = use_tmp_buf and utils.create_tmp_buf(content, root_ft) or root_bufnr
 
   local edits_per_lang = {}
 
-  for lang, nodes in pairs(get_ts_injections(bufnr)) do
+  for lang, nodes in pairs(utils.get_ts_injection_nodes(ts_bufnr)) do
     edits_per_lang[lang] = {}
     for i, node in ipairs(nodes) do
-      edits_per_lang[lang][i] = {}
+      edits_per_lang[lang][i] = false
+      local nls_range = utils.nvim_range_to_nls({ node:range() })
 
-      null_ls_embedded_format(bufnr, lang, { node:range() }, function(edit)
+      nls_get_range_edit_async({
+        bufnr = root_bufnr,
+        bufname = vim.api.nvim_buf_get_name(root_bufnr),
+        ft = lang,
+        range = nls_range,
+        content = content,
+      }, function(edit)
         edits_per_lang[lang][i] = edit
       end)
     end
   end
 
+  if use_tmp_buf then
+    vim.api.nvim_buf_delete(ts_bufnr, { force = true })
+  end
+
   local function is_done()
     for _, edits in pairs(edits_per_lang) do
       for _, edit in ipairs(edits) do
-        if not edit.range then
+        if not edit then
           return false
         end
       end
@@ -223,34 +179,103 @@ function M.buf_format(bufnr)
     return true
   end
 
-  vim.wait(500, is_done, 50)
+  while true do
+    if is_done() then
+      break
+    else
+      vim.wait(20)
+    end
+  end
 
-  local edits_to_apply = {}
+  local all_edits = {}
 
   for _, edits in pairs(edits_per_lang) do
     for _, edit in ipairs(edits) do
-      if edit.range then
-        table.insert(edits_to_apply, edit)
+      if edit then
+        table.insert(all_edits, edit)
       end
     end
   end
 
-  vim.lsp.util.apply_text_edits(edits_to_apply, bufnr, require("null-ls.client").get_offset_encoding())
+  return all_edits
 end
 
----Format current code block
+M.nls_source = {
+  name = "nls-embedded",
+  method = { methods.internal.FORMATTING, methods.internal.RANGE_FORMATTING },
+  filetypes = { "markdown", "html", "vue", "lua" },
+  generator = {
+    async = false,
+    fn = function(params)
+      if params._nls_embedded then
+        return
+      end
+
+      if params.method == methods.internal.RANGE_FORMATTING then
+        local parser = vim.treesitter.get_parser()
+        local range = utils.nls_range_to_nvim(params.range)
+        local lang = parser:language_for_range(range):lang()
+
+        if not utils.should_format(params.ft, lang, params.method) then
+          return
+        end
+
+        params.ft = lang
+
+        return { nls_get_range_edit(params) }
+      else
+        return nls_get_buf_edits(params.bufnr, params.ft, params.content, true)
+      end
+    end,
+  },
+  with = function(user_opts)
+    local ret = vim.tbl_extend("force", M.nls_source, user_opts)
+    M.nls_source.name = ret.name
+    return ret
+  end,
+}
+
+M.config = config
+
+function M.buf_format(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local edits = nls_get_buf_edits(bufnr)
+  vim.lsp.util.apply_text_edits(edits, bufnr, require("null-ls.client").get_offset_encoding())
+end
+
 function M.format_current()
-  local root_lang = vim.api.nvim_buf_get_option(0, "filetype")
-  local cursor = vim.api.nvim_win_get_cursor(0)
-  local cursor_range = { cursor[1] - 1, cursor[2], cursor[1] - 1, cursor[2] }
+  local root_bufnr = vim.api.nvim_get_current_buf()
+  local root_lang = vim.api.nvim_buf_get_option(root_bufnr, "filetype")
 
   local parser = vim.treesitter.get_parser()
-  local embedded_lang = parser:language_for_range(cursor_range):lang()
   local node = require("nvim-treesitter.ts_utils").get_node_at_cursor(0, true)
-  local range = { node:range() }
+  local node_range = { node:range() }
+  local node_lang = parser:language_for_range(node_range):lang()
 
-  if should_format(root_lang, embedded_lang) then
-    null_ls_embedded_format(0, embedded_lang, range)
+  if root_lang == node_lang then
+    for i = 0, node:named_child_count() - 1 do
+      local child = node:named_child(i)
+      local child_range = { child:range() }
+      local child_lang = parser:language_for_range(child_range):lang()
+      if child_lang ~= node_lang then
+        node = child
+        node_range = child_range
+        node_lang = child_lang
+        break
+      end
+    end
+  end
+
+  if utils.should_format(root_lang, node_lang) then
+    local edit = nls_get_range_edit({
+      bufnr = root_bufnr,
+      bufname = vim.api.nvim_buf_get_name(root_bufnr),
+      ft = node_lang,
+      range = utils.nvim_range_to_nls(node_range),
+      content = vim.api.nvim_buf_get_lines(root_bufnr, 0, -1, false),
+    })
+
+    vim.lsp.util.apply_text_edits({ edit }, root_bufnr, require("null-ls.client").get_offset_encoding())
   end
 end
 
