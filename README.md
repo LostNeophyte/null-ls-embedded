@@ -4,7 +4,7 @@ Plugin for formatting embedded code using [null-ls](https://github.com/jose-elia
 Embedded languages are found using `injections.csm` treesitter queries from [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter),
 so if the highlighting works, the formatting should as well.
 
-https://user-images.githubusercontent.com/110467150/205292765-e2f89639-f0aa-4ca0-af71-fc69478ff6d7.mp4
+https://user-images.githubusercontent.com/110467150/205495468-f0f8b9d7-5730-48d6-beb1-ea60dabb0021.mp4
 
 ## Disclaimer
 
