@@ -26,18 +26,23 @@ use({ "LostNeophyte/null-ls-embedded" })
 
 ## Formatting
 
-Add this plugin to the null-ls sources or use the builtin functions 
+Add this plugin to the null-ls sources or use the builtin functions.
 
 ### As a null-ls source
 
+To get the best results add it as the last one.
+
 ```lua
-local sources = {
-  require("null-ls-embedded").nls_source,
-}
+require("null-ls").setup({
+  sources = {
+    -- other sources
+    require("null-ls-embedded").nls_source,
+  },
+})
 ```
 
-Format by calling `vim.lsp.buf.format`
-Range formatting is supported with this method (as long as the formatter will format the selected range)
+Format by calling `vim.lsp.buf.format`.
+Range formatting is supported with this method (as long as the formatter will format the selected range).
 
 
 ### By calling functions
@@ -60,7 +65,7 @@ require("null-ls-embedded").config(config)
 
 ### Additional queries
 
-If you want the plugin to detect additional code blocks, add the treesitter queries to `injections.csm`,
+If you want the plugin to detect additional code blocks, add the treesitter queries to `injections.csm`.
 
 ## Credits
 
