@@ -149,25 +149,25 @@ end
 function M.should_format(root_lang, embedded_lang, method)
   local methods = require("null-ls.methods")
 
+  local available_sources = require("null-ls.generators").get_available(root_lang, method)
+
+  available_sources = vim.tbl_filter(function(source)
+    return source.opts.name ~= require("null-ls-embedded").nls_source.name
+  end, available_sources)
+
+  if #available_sources > 0 then
+    return false
+  end
+
   if root_lang == embedded_lang then
-    if method == methods.internal.RANGE_FORMATTING then
-      local available_sources = require("null-ls.generators").get_available(root_lang, method)
-
-      available_sources = vim.tbl_filter(function(source)
-        return source.opts.name ~= require("null-ls-embedded").nls_source.name
-      end, available_sources)
-
-      if #available_sources > 0 then
-        return false
-      end
-    else
+    if not method == methods.internal.RANGE_FORMATTING then
       return false
     end
   end
 
   local ignore_langs = config.ignore_langs
 
-  if vim.tbl_contains(ignore_langs["*"], embedded_lang) then
+  if ignore_langs["*"] and vim.tbl_contains(ignore_langs["*"], embedded_lang) then
     return false
   end
 

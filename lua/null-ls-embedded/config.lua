@@ -11,6 +11,6 @@ return setmetatable({}, {
     return config[key]
   end,
   __call = function(_, user_config)
-    vim.tbl_extend("force", config, user_config)
+    config = vim.tbl_extend("force", config, user_config)
   end,
 })
