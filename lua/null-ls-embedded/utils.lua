@@ -10,6 +10,10 @@ function M.nvim_range_to_nls(range)
   return { row = range[1] + 1, col = range[2] + 1, end_row = range[3] + 1, end_col = range[4] + 1 }
 end
 
+function M.match_whitespace(str)
+  return str:match("^[ \t]*$")
+end
+
 function M.create_tmp_buf(lines, ft)
   local tmp_bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(tmp_bufnr, 0, -1, false, lines)
@@ -38,7 +42,7 @@ function M.prepare_tmp_buffer(opts)
   local range_lines = vim.api.nvim_buf_get_text(tmp_bufnr, range[1], range[2], range[3], range[4], {})
 
   local indent = vim.api.nvim_buf_get_text(tmp_bufnr, range[1], 0, range[1], range[2], {})[1]
-  indent = indent:match("^[ \t]*") or ""
+  indent = M.match_whitespace(indent) or ""
 
   -- remove indentation
   if indent ~= "" then
@@ -51,7 +55,7 @@ function M.prepare_tmp_buffer(opts)
   local trimmed_back = false
 
   -- trim front empty lines
-  while range_lines[1]:match("^[ \t]*$") do
+  while M.match_whitespace(range_lines[1]) do
     table.remove(range_lines, 1)
     trimmed_front = true
     if not range_lines[1] then
@@ -60,7 +64,7 @@ function M.prepare_tmp_buffer(opts)
   end
 
   -- trim back empty lines
-  while range_lines[#range_lines]:match("^[ \t]*$") do
+  while M.match_whitespace(range_lines[#range_lines]) do
     table.remove(range_lines, #range_lines)
     trimmed_back = true
     if not range_lines[#range_lines] then
@@ -85,14 +89,20 @@ function M.prepare_tmp_buffer(opts)
   }
 end
 
----Trims last line whitespace form the range
+---Trims border whitespace form the range
 ---@param range table null-ls range (modified in place)
 ---@param lines string[]
 ---@return number[] range nvim range
 function M.trim_range(range, lines)
   if range.row ~= range.end_row then
+    local first_text = lines[1]:sub(range.col, #lines[1])
+    if M.match_whitespace(first_text) then
+      range.row = range.row + 1
+      range.col = 1
+    end
+
     local last_text = lines[range.end_row]:sub(1, range.end_col - 1)
-    if last_text:match("^[ \t]*$") then
+    if M.match_whitespace(last_text) then
       local row = range.end_row - 1
       range.end_row = row
       range.end_col = #lines[row] + 1 -- past the end
