@@ -1,94 +1,12 @@
 local M = {}
 
+local config = require("null-ls-embedded.config")
+
 local utils = require("null-ls-embedded.utils")
 local methods = require("null-ls.methods")
 local nl_utils = require("null-ls.utils")
 
-M._config = {
-  ignore_langs = {
-    ["*"] = { "comment" }, -- ignore comment in all languages
-    markdown = { "inline_markdown" }, -- ignore inline_markdown in markdown
-  },
-  timeout = 1000,
-}
-
-function M.config(user_config)
-  vim.tbl_extend("force", M._config, user_config)
-end
-
-local function should_format(root_lang, embedded_lang, method)
-  if root_lang == embedded_lang then
-    if method == methods.internal.RANGE_FORMATTING then
-      local available_sources = require("null-ls.generators").get_available(root_lang, method)
-
-      available_sources = vim.tbl_filter(function(source)
-        return source.opts.name ~= M.source.name
-      end, available_sources)
-
-      vim.pretty_print(available_sources)
-      if #available_sources > 0 then
-        return false
-      end
-    else
-      return false
-    end
-  end
-
-  local ignore_langs = M._config.ignore_langs
-
-  if vim.tbl_contains(ignore_langs["*"], embedded_lang) then
-    return false
-  end
-
-  if ignore_langs[root_lang] then
-    return not vim.tbl_contains(ignore_langs[root_lang], embedded_lang)
-  end
-
-  return true
-end
-
--- modified code from <neovim/runtime/lua/vim/treesitter/languagetree.lua>
-local function get_ts_injections(bufnr)
-  local root_lang = vim.api.nvim_buf_get_option(bufnr, "filetype")
-  local query = require("nvim-treesitter.query").get_query(root_lang, "injections")
-
-  local root = vim.treesitter.get_parser():parse()[1]:root()
-
-  local injections = {}
-
-  for _, match, metadata in query:iter_matches(root, bufnr, 0, -1) do
-    local nodes = {}
-    local lang
-    if metadata.language then
-      lang = metadata.language
-    end
-
-    for id, node in pairs(match) do
-      local name = query.captures[id]
-
-      if name == "language" and not lang then
-        lang = vim.treesitter.query.get_node_text(node, bufnr)
-      elseif name == "content" and #nodes == 0 then
-        table.insert(nodes, node)
-      elseif string.sub(name, 1, 1) ~= "_" then
-        lang = lang or name
-
-        table.insert(nodes, node)
-      end
-    end
-
-    if should_format(root_lang, lang) then
-      if not injections[lang] then
-        injections[lang] = {}
-      end
-      vim.list_extend(injections[lang], nodes)
-    end
-  end
-
-  return injections
-end
-
-local function null_ls_fake_range_format(params, done)
+local function nls_get_range_edit_async(params, done)
   local lsp = vim.lsp
 
   local root_bufnr = params.bufnr
@@ -115,7 +33,7 @@ local function null_ls_fake_range_format(params, done)
 
   local function make_params()
     return {
-      _nl_embedded = true,
+      _nls_embedded = true,
       lsp_method = methods.lsp.FORMATTING,
       method = methods.internal.FORMATTING,
       bufnr = tmp_bufnr,
@@ -202,22 +120,39 @@ local function null_ls_fake_range_format(params, done)
   })
 end
 
-function M.buf_format_injections(root_bufnr, root_ft, content, use_tmp_buf, callback)
+---@return any
+local function nls_get_range_edit(params)
+  local ret = false
+
+  nls_get_range_edit_async(params, function(ret_)
+    ret = ret_
+  end)
+
+  local function is_done()
+    return ret ~= false
+  end
+
+  vim.wait(config.timeout, is_done, 20)
+
+  return ret
+end
+
+local function nls_get_buf_edits(root_bufnr, root_ft, content, use_tmp_buf)
   root_bufnr = root_bufnr or vim.api.nvim_get_current_buf()
   root_ft = root_ft or vim.api.nvim_buf_get_option(root_bufnr, "filetype")
   content = content or vim.api.nvim_buf_get_lines(root_bufnr, 0, -1, false)
 
-  local bufnr = use_tmp_buf and utils.create_tmp_buf(content, root_ft) or root_bufnr
+  local ts_bufnr = use_tmp_buf and utils.create_tmp_buf(content, root_ft) or root_bufnr
 
   local edits_per_lang = {}
 
-  for lang, nodes in pairs(get_ts_injections(bufnr)) do
+  for lang, nodes in pairs(utils.get_ts_injection_nodes(ts_bufnr)) do
     edits_per_lang[lang] = {}
     for i, node in ipairs(nodes) do
-      edits_per_lang[lang][i] = {}
+      edits_per_lang[lang][i] = false
       local nls_range = utils.nvim_range_to_nls({ node:range() })
 
-      null_ls_fake_range_format({
+      nls_get_range_edit_async({
         bufnr = root_bufnr,
         bufname = vim.api.nvim_buf_get_name(root_bufnr),
         ft = lang,
@@ -230,84 +165,81 @@ function M.buf_format_injections(root_bufnr, root_ft, content, use_tmp_buf, call
   end
 
   if use_tmp_buf then
-    vim.api.nvim_buf_delete(bufnr, { force = true })
+    vim.api.nvim_buf_delete(ts_bufnr, { force = true })
   end
 
-  local function wait_for_edits()
-    local all_edits = {}
-
-    local function is_done()
-      for _, edits in pairs(edits_per_lang) do
-        for _, edit in ipairs(edits) do
-          if not edit.range and not edit.text then
-            return false
-          end
-        end
-      end
-      return true
-    end
-
-    vim.wait(M._config.timeout, is_done, 20)
-
+  local function is_done()
     for _, edits in pairs(edits_per_lang) do
       for _, edit in ipairs(edits) do
-        if edit.range or edit.text then
-          table.insert(all_edits, edit)
+        if not edit then
+          return false
         end
       end
     end
+    return true
+  end
 
-    if callback then
-      callback(all_edits)
+  while true do
+    if is_done() then
+      break
     else
-      vim.lsp.util.apply_text_edits(all_edits, root_bufnr, require("null-ls.client").get_offset_encoding())
+      vim.wait(20)
     end
   end
 
-  if callback then
-    vim.schedule(wait_for_edits)
-  else
-    wait_for_edits()
+  local all_edits = {}
+
+  for _, edits in pairs(edits_per_lang) do
+    for _, edit in ipairs(edits) do
+      if edit then
+        table.insert(all_edits, edit)
+      end
+    end
   end
+
+  return all_edits
 end
 
-M.source = {
+M.nls_source = {
   name = "nls-embedded",
   method = { methods.internal.FORMATTING, methods.internal.RANGE_FORMATTING },
   filetypes = { "markdown", "html", "vue", "lua" },
   generator = {
-    async = true,
-    fn = function(params, done)
-      if params._nl_embedded then
-        done()
+    async = false,
+    fn = function(params)
+      if params._nls_embedded then
         return
       end
 
       if params.method == methods.internal.RANGE_FORMATTING then
-        --TODO: detect ft
-        local lang = "lua"
+        local parser = vim.treesitter.get_parser()
+        local range = utils.nls_range_to_nvim(params.range)
+        local lang = parser:language_for_range(range):lang()
 
-        if not should_format(params.ft, lang, params.method) then
-          done()
+        if not utils.should_format(params.ft, lang, params.method) then
           return
         end
 
         params.ft = lang
 
-        vim.schedule(function()
-          null_ls_fake_range_format(params, function(edit)
-            done({ edit })
-          end)
-        end)
+        return { nls_get_range_edit(params) }
       else
-        M.buf_format_injections(params.bufnr, params.ft, params.content, true, done)
+        return nls_get_buf_edits(params.bufnr, params.ft, params.content, true)
       end
     end,
   },
+  with = function(user_opts)
+    local ret = vim.tbl_extend("force", M.nls_source, user_opts)
+    M.nls_source.name = ret.name
+    return ret
+  end,
 }
 
+M.config = config
+
 function M.buf_format(bufnr)
-  M.buf_format_injections(bufnr)
+  local edits = nls_get_buf_edits(bufnr)
+  vim.lsp.util.apply_text_edits(edits, bufnr, require("null-ls.client").get_offset_encoding())
 end
 
 function M.format_current()
@@ -333,24 +265,16 @@ function M.format_current()
     end
   end
 
-  if should_format(root_lang, node_lang) then
-    local done = false
-    null_ls_fake_range_format({
+  if utils.should_format(root_lang, node_lang) then
+    local edit = nls_get_range_edit({
       bufnr = root_bufnr,
       bufname = vim.api.nvim_buf_get_name(root_bufnr),
       ft = node_lang,
       range = utils.nvim_range_to_nls(node_range),
       content = vim.api.nvim_buf_get_lines(root_bufnr, 0, -1, false),
-    }, function(edit)
-      vim.lsp.util.apply_text_edits({ edit }, root_bufnr, require("null-ls.client").get_offset_encoding())
-      done = true
-    end)
+    })
 
-    local function wait()
-      return done
-    end
-
-    vim.wait(M._config.timeout, wait, 20)
+    vim.lsp.util.apply_text_edits({ edit }, root_bufnr, require("null-ls.client").get_offset_encoding())
   end
 end
 

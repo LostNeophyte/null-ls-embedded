@@ -6,7 +6,7 @@ so if the highlighting works, the formatting should as well.
 
 https://user-images.githubusercontent.com/110467150/205292765-e2f89639-f0aa-4ca0-af71-fc69478ff6d7.mp4
 
-# Disclaimer
+## Disclaimer
 
 Currently the plugin works correctly with formatters that don't need an actual file,
 correct functioning with other formatters is not guaranteed (some work, some don't). see https://github.com/LostNeophyte/null-ls-embedded/issues/3
@@ -26,28 +26,41 @@ use({ "LostNeophyte/null-ls-embedded" })
 
 ## Formatting
 
+Add this plugin to the null-ls sources or use the builtin functions 
+
+### As a null-ls source
+
+```lua
+local sources = {
+  require("null-ls-embedded").nls_source,
+}
+```
+
+Format by calling `vim.lsp.buf.format`
+Range formatting is supported with this method (as long as the formatter will format the selected range)
+
+
+### By calling functions
+
 - `require("null-ls-embedded").buf_format()` - format every code block in the buffer
 - `require("null-ls-embedded").format_current()` - format the current code block
 
 ## Configuration
 
+```lua
+local config = {
+  ignore_langs = {
+    ["*"] = { "comment" }, -- ignore `comment` in all languages
+    markdown = { "markdown_inline" }, -- ignore `markdown_inline` in `markdown`
+  },
+  timeout = 1000,
+}
+require("null-ls-embedded").config(config)
+```
+
 ### Additional queries
 
-If you want the plugin to detect additional code blocks, add the treesitter injections to `injections.csm`,
-you'll also get syntax highlighting as a side effect :)
-
-### Stop some embedded languages from being formatted
-
-To stop some languages from being formatted, you can edit the `ignore_langs` table
-
-defaults:
-
-```lua
-require("null-ls-embedded").config.ignore_langs = {
-  ["*"] = { "comment" }, -- don't format `comment` in all languages
-  markdown = { "inline_markdown" }, -- don't format embedded `inline_markdown` in `markdown` files
-}
-```
+If you want the plugin to detect additional code blocks, add the treesitter queries to `injections.csm`,
 
 ## Credits
 
