@@ -238,6 +238,7 @@ M.nls_source = {
 M.config = config
 
 function M.buf_format(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
   local edits = nls_get_buf_edits(bufnr)
   vim.lsp.util.apply_text_edits(edits, bufnr, require("null-ls.client").get_offset_encoding())
 end
