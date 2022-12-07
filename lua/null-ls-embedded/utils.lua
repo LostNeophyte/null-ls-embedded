@@ -149,13 +149,13 @@ end
 function M.should_format(root_lang, embedded_lang, method)
   local methods = require("null-ls.methods")
 
-  local available_sources = require("null-ls.generators").get_available(root_lang, method)
+  local available_sources = require("null-ls.generators").get_available(embedded_lang, method)
 
   available_sources = vim.tbl_filter(function(source)
     return source.opts.name ~= require("null-ls-embedded").nls_source.name
   end, available_sources)
 
-  if #available_sources > 0 then
+  if #available_sources == 0 then
     return false
   end
 
