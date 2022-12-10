@@ -183,7 +183,7 @@ function M.get_ts_injection_nodes(bufnr)
   local root_lang = vim.api.nvim_buf_get_option(bufnr, "filetype")
   local query = require("nvim-treesitter.query").get_query(root_lang, "injections")
 
-  local root = vim.treesitter.get_parser():parse()[1]:root()
+  local root = vim.treesitter.get_parser(bufnr):parse()[1]:root()
 
   local injections = {}
 
