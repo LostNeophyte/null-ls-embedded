@@ -101,8 +101,16 @@ function M.trim_range(range, lines)
       range.col = 1
     end
 
-    local last_text = lines[range.end_row]:sub(1, range.end_col - 1)
-    if M.match_whitespace(last_text) then
+    local function should_trim_end()
+      if range.end_row > #lines then
+        return true
+      end
+
+      local last_text = lines[range.end_row]:sub(1, range.end_col - 1)
+      return M.match_whitespace(last_text)
+    end
+
+    if should_trim_end() then
       local row = range.end_row - 1
       range.end_row = row
       range.end_col = #lines[row] + 1 -- past the end
@@ -135,7 +143,7 @@ function M.buf_to_text(bufnr, opts)
     text = text .. opts.indent .. lines[i] .. line_ending
   end
 
-  if #lines > 2 then
+  if #lines > 1 then
     text = text .. opts.indent .. lines[#lines]
   end
 

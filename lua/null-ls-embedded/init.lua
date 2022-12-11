@@ -59,6 +59,7 @@ local function nls_get_range_edit_async(params, done)
 
   local function after_each(edits)
     local ok, err = pcall(lsp.util.apply_text_edits, edits, tmp_bufnr, require("null-ls.client").get_offset_encoding())
+    vim.api.nvim_buf_set_option(tmp_bufnr, "buflisted", false) -- apply_text_edits sets buflisted to true
     if not ok then
       handle_err(err)
     end
