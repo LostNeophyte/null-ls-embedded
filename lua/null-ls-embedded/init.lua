@@ -280,4 +280,134 @@ function M.format_current()
   end
 end
 
+local function create_tmp_buf(ft, lines)
+  local tmp_bufnr = vim.api.nvim_create_buf(true, false)
+  -- local tmp_bufnr = vim.api.nvim_create_buf(false, false)
+  vim.api.nvim_buf_set_lines(tmp_bufnr, 0, -1, false, lines or {})
+  return tmp_bufnr
+end
+
+local function prepare_tmp_buffer(source_bufnr, ft)
+  local api = vim.api
+
+  local tmp_bufnr = create_tmp_buf(ft)
+
+  local tmp_bufname = api.nvim_buf_get_name(source_bufnr)
+  tmp_bufname = string.format("%s_tmp%d.%s", tmp_bufname, math.random(1000, 9999), ft)
+  api.nvim_buf_set_name(tmp_bufnr, tmp_bufname)
+
+  local options = { "shiftwidth", "tabstop", "expandtab", "fileformat" }
+  for _, option in pairs(options) do
+    api.nvim_buf_set_option(tmp_bufnr, option, api.nvim_buf_get_option(source_bufnr, option))
+  end
+
+  return tmp_bufnr
+end
+
+local function get_line_ending(bufnr)
+  local format_line_ending = {
+    ["unix"] = "\n",
+    ["dos"] = "\r\n",
+    ["mac"] = "\r",
+  }
+  return format_line_ending[vim.api.nvim_buf_get_option(bufnr or 0, "fileformat")] or "\n"
+end
+
+local function lsp_range_to_nvim(range)
+  return { range.row - 1, range.col - 1, range.end_row - 1, range.end_col - 1 }
+end
+
+local function buf_get_injections(bufnr)
+  ---@diagnostic disable-next-line: undefined-field
+  local children = vim.treesitter.get_parser(bufnr):children()
+  local injections = {}
+  for lang, tree in pairs(children) do
+    table.insert(injections, { lang = lang, range = { tree:trees()[1]:root():range() } })
+  end
+  return injections
+end
+
+function M._buf_format(source_bufnr, content, range)
+  source_bufnr = source_bufnr or 0
+
+  local root_lang = vim.api.nvim_buf_get_option(source_bufnr, "filetype")
+  local tmp_ts_bufnr = create_tmp_buf(root_lang, content)
+  vim.api.nvim_buf_set_option(tmp_ts_bufnr, "filetype", root_lang)
+  local injections = buf_get_injections(tmp_ts_bufnr)
+  local edits = {}
+
+  for _, injection in ipairs(injections) do
+    -- TODO: format_injection()
+    local lang = injection.lang
+    local range = injection.range
+    local tmp_bufnr = prepare_tmp_buffer(source_bufnr, lang)
+
+    vim.api.nvim_buf_set_lines(tmp_bufnr, 0, -1, false, content)
+    local range_lines = vim.api.nvim_buf_get_text(tmp_ts_bufnr, range[1], range[2], range[3], range[4], {})
+    vim.api.nvim_buf_set_lines(tmp_bufnr, 0, -1, false, range_lines)
+
+    local done = false
+
+    vim.api.nvim_create_autocmd("LspAttach", {
+      buffer = tmp_bufnr,
+      once = true,
+      callback = function()
+        vim.lsp.buf.format({ bufnr = tmp_bufnr })
+        done = true
+      end,
+    })
+    vim.api.nvim_buf_set_option(tmp_bufnr, "filetype", lang)
+
+    vim.wait(5000, function()
+      ---@diagnostic disable-next-line: redundant-return-value
+      return done
+    end, 20)
+
+    local line_ending = get_line_ending(source_bufnr)
+    local lines = vim.api.nvim_buf_get_lines(tmp_bufnr, 0, -1, false)
+    local newText = ""
+
+    for _, line in ipairs(lines) do
+      newText = newText .. line .. line_ending
+    end
+
+    newText = newText:gsub("[\n\r]+$", "")
+
+    if range_lines[#range_lines] == "" then
+      newText = newText .. line_ending .. line_ending
+    end
+
+    table.insert(edits, {
+      text = newText,
+      row = range[1] + 1,
+      col = range[2] + 1,
+      end_row = range[3] + 1,
+      end_col = range[4] + 1,
+    })
+
+    vim.api.nvim_buf_delete(tmp_bufnr, { force = true })
+  end
+
+  vim.api.nvim_buf_delete(tmp_ts_bufnr, { force = true })
+
+  return edits
+end
+
+M._nls_source = {
+  name = "nested-fmt",
+  method = { methods.internal.FORMATTING, methods.internal.RANGE_FORMATTING },
+  filetypes = { "_all" },
+  generator = {
+    async = false,
+    fn = function(params)
+      local range
+      if params.method == methods.internal.RANGE_FORMATTING then
+        range = params.range
+      end
+
+      return M._buf_format(params.bufnr, params.content, range)
+    end,
+  },
+}
+
 return M
