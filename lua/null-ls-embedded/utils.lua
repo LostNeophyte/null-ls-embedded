@@ -11,7 +11,7 @@ function M.nvim_range_to_nls(range)
 end
 
 function M.match_whitespace(str)
-  return str:match("^[ \t]*$")
+  return str and str:match("^[ \t]*$")
 end
 
 function M.create_tmp_buf(lines, ft)
@@ -40,16 +40,6 @@ function M.prepare_tmp_buffer(opts)
 
   -- get lines from the range
   local range_lines = vim.api.nvim_buf_get_text(tmp_bufnr, range[1], range[2], range[3], range[4], {})
-
-  local indent = vim.api.nvim_buf_get_text(tmp_bufnr, range[1], 0, range[1], range[2], {})[1]
-  indent = M.match_whitespace(indent) or ""
-
-  -- remove indentation
-  if indent ~= "" then
-    for i, line in ipairs(range_lines) do
-      range_lines[i] = line:gsub("^" .. indent, "")
-    end
-  end
 
   local trimmed_front = false
   local trimmed_back = false
@@ -80,6 +70,21 @@ function M.prepare_tmp_buffer(opts)
   --   end
   -- end
 
+  local indent
+  if range[2] > 0 then
+    indent = vim.api.nvim_buf_get_text(tmp_bufnr, range[1], 0, range[1], range[2], {})[1]
+  else
+    indent = range_lines[1]:match("^[ \t]+")
+  end
+  indent = M.match_whitespace(indent) or ""
+
+  -- remove indentation
+  if indent ~= "" then
+    for i, line in ipairs(range_lines) do
+      range_lines[i] = line:gsub("^" .. indent, "")
+    end
+  end
+
   api.nvim_buf_set_lines(tmp_bufnr, 0, -1, false, range_lines)
 
   return tmp_bufnr, {
@@ -95,7 +100,7 @@ end
 ---@return number[] range nvim range
 function M.trim_range(range, lines)
   if range.row ~= range.end_row then
-    local first_text = lines[1]:sub(range.col, #lines[1])
+    local first_text = lines[range.row]:sub(range.col, #lines[range.row])
     if M.match_whitespace(first_text) then
       range.row = range.row + 1
       range.col = 1
