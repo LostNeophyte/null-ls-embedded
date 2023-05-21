@@ -195,6 +195,10 @@ end
 function M.get_ts_injection_nodes(bufnr)
   local root_lang = vim.api.nvim_buf_get_option(bufnr, "filetype")
   local query = require("nvim-treesitter.query").get_query(root_lang, "injections")
+  if not query then
+    require("null-ls.logger"):warn("[null-ls-embedded] Couldn't find TS queries for " .. root_lang)
+    return {}
+  end
 
   local root = vim.treesitter.get_parser(bufnr):parse()[1]:root()
 
@@ -211,7 +215,7 @@ function M.get_ts_injection_nodes(bufnr)
       local name = query.captures[id]
 
       if name == "language" and not lang then
-        lang = vim.treesitter.query.get_node_text(node, bufnr)
+        lang = vim.treesitter.get_node_text(node, bufnr)
       elseif name == "content" and #nodes == 0 then
         table.insert(nodes, node)
       elseif string.sub(name, 1, 1) ~= "_" then

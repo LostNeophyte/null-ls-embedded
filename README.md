@@ -1,6 +1,6 @@
 # null-ls-embedded
 
-Plugin for formatting embedded code using [null-ls](https://github.com/jose-elias-alvarez/null-ls.nvim) in NeoVim.
+Plugin for formatting embedded(injected) code (e.g. `lua` in `markdown`)using [null-ls](https://github.com/jose-elias-alvarez/null-ls.nvim) in NeoVim.
 Embedded languages are found using `injections.csm` treesitter queries from [nvim-treesitter](https://github.com/nvim-treesitter/nvim-treesitter),
 so if the highlighting works, the formatting should as well.
 
@@ -41,9 +41,21 @@ require("null-ls").setup({
 })
 ```
 
+The null-ls source is enabled only for some filetypes by default, to configure them use this:
+
+```lua
+require("null-ls").setup({
+  sources = {
+    require("null-ls-embedded").nls_source.with({
+      -- default filetypes:
+      filetypes = { "markdown", "html", "vue", "lua" },
+    }),
+  },
+})
+```
+
 Format by calling `vim.lsp.buf.format`.
 Range formatting is supported with this method (as long as the formatter will format the selected range).
-
 
 ### By calling functions
 
@@ -54,6 +66,7 @@ Range formatting is supported with this method (as long as the formatter will fo
 
 ```lua
 local config = {
+  -- don't format these injected languages
   ignore_langs = {
     ["*"] = { "comment" }, -- ignore `comment` in all languages
     markdown = { "markdown_inline" }, -- ignore `markdown_inline` in `markdown`
