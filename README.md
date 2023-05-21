@@ -6,11 +6,6 @@ so if the highlighting works, the formatting should as well.
 
 https://user-images.githubusercontent.com/110467150/205495468-f0f8b9d7-5730-48d6-beb1-ea60dabb0021.mp4
 
-## Disclaimer
-
-Currently the plugin works correctly with formatters that don't need an actual file,
-correct functioning with other formatters is not guaranteed (some work, some don't). see https://github.com/LostNeophyte/null-ls-embedded/issues/3
-
 ## installation
 
 ### Dependencies:
