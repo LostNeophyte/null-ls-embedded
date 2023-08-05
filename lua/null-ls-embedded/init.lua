@@ -147,11 +147,11 @@ local function nls_get_buf_edits(root_bufnr, root_ft, content, use_tmp_buf)
 
   local edits_per_lang = {}
 
-  for lang, nodes in pairs(utils.get_ts_injection_nodes(ts_bufnr)) do
+  for lang, ranges in pairs(utils.get_ts_injection_ranges(ts_bufnr)) do
     edits_per_lang[lang] = {}
-    for i, node in ipairs(nodes) do
+    for i, range in ipairs(ranges) do
       edits_per_lang[lang][i] = false
-      local nls_range = utils.nvim_range_to_nls({ node:range() })
+      local nls_range = utils.nvim_range_to_nls(range)
 
       nls_get_range_edit_async({
         bufnr = root_bufnr,

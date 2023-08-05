@@ -191,47 +191,28 @@ function M.should_format(root_lang, embedded_lang, method)
   return true
 end
 
--- modified code from <neovim/runtime/lua/vim/treesitter/languagetree.lua>
-function M.get_ts_injection_nodes(bufnr)
+function M.get_ts_injection_ranges(bufnr)
   local root_lang = vim.api.nvim_buf_get_option(bufnr, "filetype")
-  local query = require("nvim-treesitter.query").get_query(root_lang, "injections")
-  if not query then
-    require("null-ls.logger"):warn("[null-ls-embedded] Couldn't find TS queries for " .. root_lang)
+  local parser = vim.treesitter.get_parser(bufnr)
+  if not parser then
+    require("null-ls.logger"):warn("[null-ls-embedded] Couldn't get TS parser")
     return {}
   end
 
-  local root = vim.treesitter.get_parser(bufnr):parse()[1]:root()
-
   local injections = {}
 
-  for _, match, metadata in query:iter_matches(root, bufnr, 0, -1) do
-    local nodes = {}
-    local lang
-    if metadata.language then
-      lang = metadata.language
-    end
-
-    for id, node in pairs(match) do
-      local name = query.captures[id]
-
-      if name == "language" and not lang then
-        lang = vim.treesitter.get_node_text(node, bufnr)
-      elseif name == "content" and #nodes == 0 then
-        table.insert(nodes, node)
-      elseif string.sub(name, 1, 1) ~= "_" then
-        lang = lang or name
-
-        table.insert(nodes, node)
-      end
-    end
-
+  parser:for_each_child(function(child, lang)
     if M.should_format(root_lang, lang) then
       if not injections[lang] then
         injections[lang] = {}
       end
-      vim.list_extend(injections[lang], nodes)
+      for _, wrapped_region in ipairs(child:included_regions()) do
+        local region = wrapped_region[1]
+        local range = { region[1], region[2], region[4], region[5] }
+        table.insert(injections[lang], range)
+      end
     end
-  end
+  end)
 
   return injections
 end
